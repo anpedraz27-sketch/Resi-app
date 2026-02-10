@@ -8,49 +8,63 @@ create type booking_status as enum ('confirmed', 'cancelled', 'completed');
 -- 3. Profiles Table (Links to auth.users)
 create table public.profiles (
   id uuid references auth.users not null primary key,
-  email text not null,
   full_name text,
-  unit_number text,
   role user_role default 'resident',
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  apartment text
 );
+
+-- Function to auto-create profile on new user sign up
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, full_name, role, apartment)
+  values (new.id, new.raw_user_meta_data->>'full_name', 'resident', new.raw_user_meta_data->>'apartment');
+  return new;
+end;
+$$ language plpgsql security definer;
+
+-- Trigger to call the function on new user creation
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
 
 -- 4. Amenities Table
 create table public.amenities (
   id uuid default uuid_generate_v4() primary key,
   name text not null,
-  description text,
   capacity int default 1,
-  icon_name text, -- Store lucide icon name
+  available_from time,
+  available_to time,
+  is_active boolean default true,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 5. Settings Table (Global Config)
-create table public.settings (
-  id uuid default uuid_generate_v4() primary key,
-  key text unique not null,
-  value jsonb not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+-- 5. App Settings Table (Global Config)
+create table public.app_settings (
+  key text primary key,
+  value jsonb not null
 );
+
 
 -- 6. Bookings Table
 create table public.bookings (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id) not null,
   amenity_id uuid references public.amenities(id) not null,
-  date date not null,
+  booking_date date not null,
   start_time time not null,
   end_time time not null,
   status booking_status default 'confirmed',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 7. Notifications Table
-create table public.notifications (
+-- 7. Announcements Table
+create table public.announcements (
   id uuid default uuid_generate_v4() primary key,
   title text not null,
-  message text not null,
-  created_by uuid references public.profiles(id),
+  content text not null,
+  priority int default 0,
+  is_published boolean default false,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -58,33 +72,41 @@ create table public.notifications (
 alter table public.profiles enable row level security;
 alter table public.amenities enable row level security;
 alter table public.bookings enable row level security;
-alter table public.settings enable row level security;
-alter table public.notifications enable row level security;
+alter table public.app_settings enable row level security;
+alter table public.announcements enable row level security;
 
 -- 9. RLS Policies
 
--- Profiles: Users can read their own, Admins can read all
-create policy "Public profiles are viewable by everyone" on public.profiles for select using (true);
+-- Profiles: User can read their own row. Admin can read all.
+create policy "User can view their own profile" on public.profiles for select using (auth.uid() = id);
+create policy "Admin can view all profiles" on public.profiles for select using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
 create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
 
--- Amenities: Read by all, Modify by Admin only
-create policy "Amenities are viewable by everyone" on public.amenities for select using (true);
-create policy "Admins can insert amenities" on public.amenities for insert with check (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
-create policy "Admins can update amenities" on public.amenities for update using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
-create policy "Admins can delete amenities" on public.amenities for delete using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
 
--- Bookings: Residents see own, Admins see all
-create policy "Users see own bookings" on public.bookings for select using (auth.uid() = user_id or exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
-create policy "Users can create bookings" on public.bookings for insert with check (auth.uid() = user_id or exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
-create policy "Users can update own bookings" on public.bookings for update using (auth.uid() = user_id or exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+-- Amenities: All users can read active amenities. Only Admin can write.
+create policy "All users can view active amenities" on public.amenities for select using (is_active = true);
+create policy "Admin can manage amenities" on public.amenities for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
 
--- Settings: Read by all, Modify by Admin only
-create policy "Settings viewable by everyone" on public.settings for select using (true);
-create policy "Admins manage settings" on public.settings for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+-- Announcements: All users can read published announcements. Only Admin can write.
+create policy "All users can view published announcements" on public.announcements for select using (is_published = true);
+create policy "Admin can manage announcements" on public.announcements for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
 
--- Notifications: Read by all, Modify by Admin only
-create policy "Notifications viewable by everyone" on public.notifications for select using (true);
-create policy "Admins manage notifications" on public.notifications for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
 
--- 10. Initial Data (Settings)
-insert into public.settings (key, value) values ('booking_lead_time_days', '1');
+-- Bookings: User can read/create/cancel their own bookings. Admin can read/modify all bookings.
+create policy "Users can manage their own bookings" on public.bookings for all using (auth.uid() = user_id);
+create policy "Admin can manage all bookings" on public.bookings for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+
+-- App Settings: All users can read settings. Only Admin can write.
+create policy "All users can view app settings" on public.app_settings for select using (true);
+create policy "Admin can manage app settings" on public.app_settings for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+
+
+-- 10. Initial Data (App Settings)
+insert into public.app_settings (key, value) values 
+('min_hours_advance', '24'),
+('max_duration', '4'),
+('max_active_bookings', '3');
+
+-- 11. Realtime
+alter table public.bookings replica identity full;
+create publication supabase_realtime for table public.bookings;
