@@ -1,0 +1,5 @@
+{
+  "name": "ResiApp - Building Management",
+  "description": "A comprehensive PWA for modern building management, featuring amenity booking, resident notifications, and administrative controls.",
+  "requestFramePermissions": []
+}
