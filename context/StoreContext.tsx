@@ -27,7 +27,7 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const StoreProviderContent: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   
   // Local state acting as DB cache
@@ -122,6 +122,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }}>
       {children}
     </StoreContext.Provider>
+  );
+}
+
+export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return (
+    <StoreProviderContent>
+      {children}
+    </StoreProviderContent>
   );
 };
 
