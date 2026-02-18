@@ -32,6 +32,8 @@ create trigger on_auth_user_created
 create table public.amenities (
   id uuid default uuid_generate_v4() primary key,
   name text not null,
+  description text,
+  icon text default 'Flame',
   capacity int default 1,
   available_from time,
   available_to time,
