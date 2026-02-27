@@ -48,22 +48,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const profile = await fetchProfile(session.user);
-        setUser(profile);
+    const initSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('Auth session error:', error);
+        } else if (session?.user) {
+          const profile = await fetchProfile(session.user);
+          setUser(profile);
+        }
+      } catch (err) {
+        console.error('Error getting session:', err);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
-    });
+    };
+
+    initSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        const profile = await fetchProfile(session.user);
-        setUser(profile);
-      } else {
-        setUser(null);
+      try {
+        if (session?.user) {
+          const profile = await fetchProfile(session.user);
+          setUser(profile);
+        } else {
+          setUser(null);
+        }
+      } catch (err) {
+        console.error('Error on auth state change:', err);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     });
 
     return () => subscription.unsubscribe();

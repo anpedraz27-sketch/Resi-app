@@ -22,6 +22,7 @@ const Login: React.FC = () => {
     // Success handles redirect in App.tsx via useEffect/State
   };
 
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-md bg-white border border-slate-100 p-8 rounded-card shadow-medium">

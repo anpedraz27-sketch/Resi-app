@@ -16,7 +16,7 @@ interface StoreContextType {
   updateAmenity: (id: string, data: Partial<Amenity>) => Promise<void>;
   deleteAmenity: (id: string) => Promise<void>;
 
-  addBooking: (booking: Omit<Booking, 'id' | 'status'>) => Promise<void>;
+  addBooking: (booking: Omit<Booking, 'id' | 'status'>) => Promise<{ success: boolean, error?: string }>;
   cancelBooking: (id: string) => Promise<void>;
 
   addNotification: (title: string, message: string) => Promise<void>;
@@ -38,13 +38,17 @@ const StoreProviderContent: React.FC<{ children: React.ReactNode }> = ({ childre
   const [settings, setSettings] = useState<AppSettings>(MOCK_SETTINGS);
   const [users, setUsers] = useState<User[]>([]);
 
-  // Fetch initial data from Supabase
+  // Fetch data when component mounts or user changes
   useEffect(() => {
     fetchAmenities();
     fetchUsers();
-    fetchBookings();
     fetchNotifications();
-  }, []);
+
+    // Only fetch bookings if we have a user (to avoid empty lists on first load)
+    if (user) {
+      fetchBookings();
+    }
+  }, [user]);
 
   const fetchAmenities = async () => {
     try {
@@ -177,7 +181,7 @@ const StoreProviderContent: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const addBooking = async (data: Omit<Booking, 'id' | 'status'>) => {
+  const addBooking = async (data: Omit<Booking, 'id' | 'status'>): Promise<{ success: boolean, error?: string }> => {
     try {
       if (!supabase) {
         const newBooking: Booking = {
@@ -186,7 +190,7 @@ const StoreProviderContent: React.FC<{ children: React.ReactNode }> = ({ childre
           status: 'confirmed',
         };
         setBookings(prev => [...prev, newBooking]);
-        return;
+        return { success: true };
       }
 
       const { data: created, error } = await supabase
@@ -213,9 +217,12 @@ const StoreProviderContent: React.FC<{ children: React.ReactNode }> = ({ childre
           endTime: created.end_time,
           status: created.status
         }]);
+        return { success: true };
       }
-    } catch (e) {
+      return { success: false, error: "No data returned from DB" };
+    } catch (e: any) {
       console.error('Error adding booking:', e);
+      return { success: false, error: e.message || "Unknown error" };
     }
   };
 

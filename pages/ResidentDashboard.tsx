@@ -6,6 +6,7 @@ import CalendarView from '../components/CalendarView';
 import { Flame, Laptop, Waves, Coffee, Car, Dumbbell, Clock, Calendar as CalIcon, Check } from 'lucide-react';
 import { format, addDays, differenceInDays, isSameDay } from 'date-fns';
 import { usePostHog } from 'posthog-js/react';
+import { sendBookingConfirmation } from '../services/emailService';
 
 interface ResidentProps {
     activeSubTab: string;
@@ -42,7 +43,7 @@ const ResidentDashboard: React.FC<ResidentProps> = ({ activeSubTab }) => {
         // Parse slot string "10:00 - 12:00"
         const [start, end] = selectedSlot.split(' - ');
 
-        await addBooking({
+        const result = await addBooking({
             userId: user.id,
             amenityId: selectedAmenityId,
             date: format(selectedDate, 'yyyy-MM-dd'),
@@ -50,16 +51,42 @@ const ResidentDashboard: React.FC<ResidentProps> = ({ activeSubTab }) => {
             endTime: end
         });
 
-        // Track custom event with PostHog
-        posthog?.capture('reserva_iniciada', {
-            amenity_id: selectedAmenityId,
-            date: format(selectedDate, 'yyyy-MM-dd'),
-            slot: selectedSlot,
-        });
+        if (result.success) {
+            // Track custom event with PostHog
+            posthog?.capture('reserva_iniciada', {
+                amenity_id: selectedAmenityId,
+                date: format(selectedDate, 'yyyy-MM-dd'),
+                slot: selectedSlot,
+            });
 
-        showToast('Reservation confirmed!', 'success');
-        setSelectedSlot(null);
-        setSelectedAmenityId(null);
+            const amenity = amenities.find(a => a.id === selectedAmenityId);
+            if (amenity && user) {
+                // For Resend free tier, emails must go to the verified developer email.
+                // In production with a custom domain, you would use `user.email`.
+                const destinationEmail = 'anpedraz27@gmail.com';
+                console.log("Reservado en Supabase, invocando función de correo hacia", destinationEmail);
+                sendBookingConfirmation(
+                    destinationEmail,
+                    user.fullName || 'Residente',
+                    amenity.name,
+                    format(selectedDate, 'dd/MM/yyyy'),
+                    selectedSlot
+                ).then(sent => {
+                    if (sent) alert("¡Correo enviado con éxito por Supabase Edge Function!");
+                    // Si falla, el service/edge function ya arroja sus propios errores
+                }).catch(err => {
+                    console.error("Error en servicio de correo:", err);
+                    alert("Error crítico ejecutando emailService");
+                });
+            }
+
+            showToast('Reservation confirmed!', 'success');
+            setSelectedSlot(null);
+            setSelectedAmenityId(null);
+        } else {
+            alert(`Error Supabase: ${result.error}`);
+            showToast(`Error Supabase: ${result.error}`, 'error');
+        }
     };
 
     // Generate simple slots (mock logic: 2 hour blocks)
