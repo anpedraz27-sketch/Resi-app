@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '../types';
-import { MOCK_USERS } from '../mockData';
+import { supabase } from '../services/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -15,39 +15,79 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    // Check local storage for persisted session mock
-    const storedUser = localStorage.getItem('resiapp_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+  const fetchProfile = async (sessionUser: any) => {
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', sessionUser.id)
+      .single();
+
+    if (error || !data) {
+      console.error('Error fetching profile:', error);
+      return {
+        id: sessionUser.id,
+        email: sessionUser.email,
+        fullName: sessionUser.user_metadata?.full_name || 'Unknown User',
+        role: 'resident' as const,
+      };
     }
-    setIsLoading(false);
+
+    return {
+      id: sessionUser.id,
+      email: sessionUser.email,
+      fullName: data.full_name,
+      role: data.role,
+      unitNumber: data.apartment,
+    };
+  };
+
+  useEffect(() => {
+    if (!supabase) {
+      setIsLoading(false);
+      return;
+    }
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const profile = await fetchProfile(session.user);
+        setUser(profile);
+      }
+      setIsLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        const profile = await fetchProfile(session.user);
+        setUser(profile);
+      } else {
+        setUser(null);
+      }
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const login = async (email: string, pass: string) => {
-    // Mock Auth Logic
-    // In real app, use supabase.auth.signInWithPassword
-    await new Promise(r => setTimeout(r, 800)); // Simulate network
-
-    let foundUser: User | undefined;
-    
-    if (email === 'admin@edificio.com' && pass === 'admin123') {
-      foundUser = MOCK_USERS.find(u => u.role === 'admin');
-    } else if (email === 'vecino@edificio.com' && pass === 'vecino123') {
-      foundUser = MOCK_USERS.find(u => u.role === 'resident' && u.email === email);
+    if (!supabase) return false;
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (error) {
+      console.error('Login error:', error);
+      return false;
     }
-
-    if (foundUser) {
-      setUser(foundUser);
-      localStorage.setItem('resiapp_user', JSON.stringify(foundUser));
-      return true;
-    }
-    return false;
+    return true;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    if (supabase) {
+      try {
+        await supabase.auth.signOut();
+      } catch (error) {
+        console.error('Error during sign out:', error);
+      }
+    }
     setUser(null);
-    localStorage.removeItem('resiapp_user');
   };
 
   return (

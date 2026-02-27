@@ -33,14 +33,17 @@ const StoreProviderContent: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Local state acting as DB cache
   const [amenities, setAmenities] = useState<Amenity[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>(MOCK_BOOKINGS);
-  const [notifications, setNotifications] = useState<Notification[]>(MOCK_NOTIFICATIONS);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [settings, setSettings] = useState<AppSettings>(MOCK_SETTINGS);
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
+  const [users, setUsers] = useState<User[]>([]);
 
   // Fetch initial data from Supabase
   useEffect(() => {
     fetchAmenities();
+    fetchUsers();
+    fetchBookings();
+    fetchNotifications();
   }, []);
 
   const fetchAmenities = async () => {
@@ -55,6 +58,68 @@ const StoreProviderContent: React.FC<{ children: React.ReactNode }> = ({ childre
       if (data) setAmenities(data as Amenity[]);
     } catch (error) {
       console.error('Error fetching amenities:', error);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      if (!supabase) return;
+      const { data, error } = await supabase.from('profiles').select('*');
+      if (error) throw error;
+      if (data) {
+        setUsers(data.map((p: any) => ({
+          id: p.id,
+          email: '', // Not exposed in profiles table currently
+          fullName: p.full_name || 'Unknown',
+          role: p.role,
+          unitNumber: p.apartment
+        })));
+      }
+    } catch (e) {
+      console.error('Error fetching users:', e);
+    }
+  };
+
+  const fetchBookings = async () => {
+    try {
+      if (!supabase) return;
+      const { data, error } = await supabase.from('bookings').select('*');
+      if (error) throw error;
+      if (data) {
+        setBookings(data.map((b: any) => ({
+          id: b.id,
+          userId: b.user_id,
+          amenityId: b.amenity_id,
+          date: b.booking_date,
+          startTime: b.start_time,
+          endTime: b.end_time,
+          status: b.status
+        })));
+      }
+    } catch (e) {
+      console.error('Error fetching bookings:', e);
+    }
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      if (!supabase) return;
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      if (data) {
+        setNotifications(data.map((n: any) => ({
+          id: n.id,
+          title: n.title,
+          message: n.content,
+          createdAt: n.created_at,
+          isRead: false
+        })));
+      }
+    } catch (e) {
+      console.error('Error fetching announcements:', e);
     }
   };
 
@@ -113,27 +178,103 @@ const StoreProviderContent: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const addBooking = async (data: Omit<Booking, 'id' | 'status'>) => {
-    const newBooking: Booking = {
-      ...data,
-      id: `bk-${Date.now()}`,
-      status: 'confirmed',
-    };
-    setBookings(prev => [...prev, newBooking]);
+    try {
+      if (!supabase) {
+        const newBooking: Booking = {
+          ...data,
+          id: `bk-${Date.now()}`,
+          status: 'confirmed',
+        };
+        setBookings(prev => [...prev, newBooking]);
+        return;
+      }
+
+      const { data: created, error } = await supabase
+        .from('bookings')
+        .insert([{
+          user_id: data.userId,
+          amenity_id: data.amenityId,
+          booking_date: data.date,
+          start_time: data.startTime,
+          end_time: data.endTime,
+          status: 'confirmed'
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (created) {
+        setBookings(prev => [...prev, {
+          id: created.id,
+          userId: created.user_id,
+          amenityId: created.amenity_id,
+          date: created.booking_date,
+          startTime: created.start_time,
+          endTime: created.end_time,
+          status: created.status
+        }]);
+      }
+    } catch (e) {
+      console.error('Error adding booking:', e);
+    }
   };
 
   const cancelBooking = async (id: string) => {
-    setBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'cancelled' } : b));
+    try {
+      if (!supabase) {
+        setBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'cancelled' } : b));
+        return;
+      }
+
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status: 'cancelled' })
+        .eq('id', id);
+
+      if (error) throw error;
+      setBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'cancelled' } : b));
+    } catch (e) {
+      console.error('Error cancelling booking:', e);
+    }
   };
 
   const addNotification = async (title: string, message: string) => {
-    const newNotif: Notification = {
-      id: `not-${Date.now()}`,
-      title,
-      message,
-      createdAt: new Date().toISOString(),
-      isRead: false
-    };
-    setNotifications(prev => [newNotif, ...prev]);
+    try {
+      if (!supabase) {
+        const newNotif: Notification = {
+          id: `not-${Date.now()}`,
+          title,
+          message,
+          createdAt: new Date().toISOString(),
+          isRead: false
+        };
+        setNotifications(prev => [newNotif, ...prev]);
+        return;
+      }
+
+      const { data: created, error } = await supabase
+        .from('announcements')
+        .insert([{
+          title,
+          content: message,
+          is_published: true
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (created) {
+        setNotifications(prev => [{
+          id: created.id,
+          title: created.title,
+          message: created.content,
+          createdAt: created.created_at,
+          isRead: false
+        }, ...prev]);
+      }
+    } catch (e) {
+      console.error('Error adding notification:', e);
+    }
   };
 
   const updateSettings = async (newSettings: Partial<AppSettings>) => {
