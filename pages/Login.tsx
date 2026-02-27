@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Building, Loader } from 'lucide-react';
 
-const Login: React.FC = () => {
+interface LoginProps {
+  onNavigate?: (view: 'login' | 'signup') => void;
+}
+
+const Login: React.FC<LoginProps> = ({ onNavigate }) => {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
@@ -92,6 +96,18 @@ const Login: React.FC = () => {
             >
               Resident
             </button>
+          </div>
+          <div className="mt-6 pt-4 border-t border-slate-100 text-center">
+            <p className="text-sm font-medium text-slate-600">
+              Don't have an account?{' '}
+              <button
+                type="button"
+                onClick={() => onNavigate?.('signup')}
+                className="text-primary-600 hover:text-primary-700 font-semibold transition-colors"
+              >
+                Sign up
+              </button>
+            </p>
           </div>
         </div>
       </div>

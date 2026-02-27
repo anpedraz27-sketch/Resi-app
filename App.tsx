@@ -4,12 +4,20 @@ import { StoreProvider } from './context/StoreContext';
 import { ToastProvider } from './components/ui/Toast';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import SignUpPage from './pages/SignUpPage';
 import AdminDashboard from './pages/AdminDashboard';
 import ResidentDashboard from './pages/ResidentDashboard';
 
 const AppContent: React.FC = () => {
   const { user, isLoading } = useAuth();
   const [currentTab, setCurrentTab] = useState('dashboard');
+  const [authView, setAuthView] = useState<'login' | 'signup'>('login');
+
+  React.useEffect(() => {
+    if (user) {
+      setAuthView('login');
+    }
+  }, [user]);
 
   if (isLoading) {
     return (
@@ -20,7 +28,10 @@ const AppContent: React.FC = () => {
   }
 
   if (!user) {
-    return <Login />;
+    if (authView === 'signup') {
+      return <SignUpPage onNavigate={setAuthView} />;
+    }
+    return <Login onNavigate={setAuthView} />;
   }
 
   return (
