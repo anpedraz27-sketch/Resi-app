@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, Bot, AlertCircle } from 'lucide-react';
 import { usePostHog } from 'posthog-js/react';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { supabase } from '../services/supabase';
 import ReactMarkdown from 'react-markdown';
 
 interface Message {
@@ -10,22 +10,7 @@ interface Message {
     content: string;
 }
 
-// Initialize Gemini safely
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-let genAI: GoogleGenerativeAI | null = null;
-let model: any = null;
-
-try {
-    if (apiKey) {
-        genAI = new GoogleGenerativeAI(apiKey);
-        model = genAI.getGenerativeModel({
-            model: "gemini-2.5-flash",
-            systemInstruction: "Eres un conserje y experto en el reglamento del edificio ResiApp. Ayudas a los vecinos respondiendo preguntas sobre reservas de amenidades (BBQ, piscina), horarios, convivencia, y normas del edificio. Eres amable, conciso y respondes en español. Si no sabes algo, sugieres contactar a la administración."
-        });
-    }
-} catch (e) {
-    console.warn("Gemini initialization failed:", e);
-}
+// Supabase client handles edge function invocation
 
 const AIChatSupport: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -73,17 +58,6 @@ const AIChatSupport: React.FC = () => {
         setIsLoading(true);
         setError(null);
 
-        // Resilient check: No API key or Model failed to initialize
-        if (!model) {
-            setMessages(prev => [...prev, {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: 'Lo siento, el servicio de inteligencia artificial no está configurado en este momento (Falta API Key). Contacta al administrador.'
-            }]);
-            setIsLoading(false);
-            return;
-        }
-
         try {
             // Build conversation history for Gemini (excluding the system prompt / welcome message)
             const chatHistory = messages.slice(1).map(m => ({
@@ -91,20 +65,23 @@ const AIChatSupport: React.FC = () => {
                 parts: [{ text: m.content }],
             }));
 
-            const chat = model.startChat({
-                history: chatHistory,
+            // Call Supabase Edge Function
+            const { data, error: invokeError } = await supabase!.functions.invoke('chat-ai', {
+                body: { history: chatHistory, message: userMsg.content }
             });
 
-            const result = await chat.sendMessage(userMsg.content);
-            const responseText = result.response.text();
-
-            setMessages(prev => [...prev, {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: responseText
-            }]);
+            if (invokeError || data?.error) {
+                console.error('Edge Function Error:', invokeError || data?.error);
+                setError('Tuvimos un problema conectando con el asistente. Intenta de nuevo más tarde.');
+            } else {
+                setMessages(prev => [...prev, {
+                    id: (Date.now() + 1).toString(),
+                    role: 'assistant',
+                    content: data.text
+                }]);
+            }
         } catch (err) {
-            console.error('Gemini API Error:', err);
+            console.error('API Invocation Error:', err);
             // Graceful degradation
             setError('Tuvimos un problema conectando con el asistente. Intenta de nuevo más tarde.');
         } finally {
